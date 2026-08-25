@@ -1,0 +1,10 @@
+# Root-level catch-all. backend/ and frontend/ each have their own
+# more specific .gitignore too.
+
+node_modules
+.env
+*.local
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

@@ -1,0 +1,66 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend: Dev",
+      "type": "npm",
+      "script": "dev",
+      "path": "backend",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Frontend: Dev",
+      "type": "npm",
+      "script": "dev",
+      "path": "frontend",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Full Stack: Dev",
+      "dependsOn": ["Backend: Dev", "Frontend: Dev"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Backend: Install",
+      "type": "npm",
+      "script": "install",
+      "path": "backend",
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Install",
+      "type": "npm",
+      "script": "install",
+      "path": "frontend",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Migrate",
+      "type": "npm",
+      "script": "db:migrate",
+      "path": "backend",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Seed",
+      "type": "npm",
+      "script": "db:seed",
+      "path": "backend",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Studio",
+      "type": "npm",
+      "script": "db:studio",
+      "path": "backend",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

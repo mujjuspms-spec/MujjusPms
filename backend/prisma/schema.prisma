@@ -1,0 +1,626 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id
+  name         String
+  email        String   @unique
+  role         String
+  globalRole   String
+  color        String
+  initials     String
+  avatarStoredName String?
+  passwordHash String
+  capacity     Int      @default(40)
+  allocated    Int      @default(0)
+
+  phone             String    @default("")
+  department        String    @default("")
+  location          String    @default("")
+  timezone          String    @default("")
+  about             String    @default("")
+  workDays          String    @default("[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\"]")
+  workStart         String    @default("09:00")
+  workEnd           String    @default("17:00")
+  passwordChangedAt DateTime?
+  lastLoginAt       DateTime?
+
+  ownedProjects      Project[]          @relation("ProjectOwner")
+  memberships        ProjectMember[]
+  workspaceMemberships WorkspaceMember[]
+  tasksAssigned      Task[]             @relation("TaskAssignee")
+  tasksCreated       Task[]             @relation("TaskCreator")
+  taskCollaborations TaskCollaborator[]
+  attachments        Attachment[]
+  notifications      Notification[]
+  comments           Comment[]
+  timesheetEntries   TimesheetEntry[]
+  goals              Goal[]
+  apiKeys            ApiKey[]
+  activeTimer        ActiveTimer?
+  issuesReported     Issue[]            @relation("IssueReporter")
+  issuesAssigned     Issue[]            @relation("IssueAssignee")
+  approvalsRequested Approval[]         @relation("ApprovalRequestedBy")
+  approvalsToDecide  Approval[]         @relation("ApprovalApprover")
+  chatMessages       ChatMessage[]
+  createdProjectTemplates ProjectTemplate[]
+}
+
+model Project {
+  id               String   @id
+  name             String
+  health           String
+  progress         Int
+  due              String
+  start            String
+  desc             String
+  client           String
+  // Manual override for the project's overall budget. When set (non-null),
+  // it's authoritative — task/subtask budgets underneath it are read as an
+  // allocation breakdown, never added on top. When null, the effective
+  // budget is calculated by summing top-level task budgets instead (see
+  // lib/budget.js's computeProjectBudgetTotals) — no separate "task-derived
+  // total" is stored anywhere, so it can never drift out of sync.
+  budget           Float?
+  spent            Float
+  currency         String
+  integrationsJson String   @default("[]")
+  ownerId          String
+  owner            User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  publicShareToken String?  @unique
+  publicShareExpiresAt DateTime?
+  isArchived       Boolean  @default(false)
+  workspaceId      String
+  workspace        Workspace @relation(fields: [workspaceId], references: [id])
+  // Soft reference only — analytics/reference. A project must be fully
+  // independent of its template after creation, so this is never an
+  // enforced FK and never gates any functionality.
+  sourceTemplateId      String?
+  sourceTemplateVersion Int?
+
+  members          ProjectMember[]
+  tasks            Task[]
+  automationRules  AutomationRule[]
+  timesheetEntries TimesheetEntry[]
+  goals            Goal[]
+  issues           Issue[]
+  customFields     CustomFieldDef[]
+  sprints          Sprint[]
+  chatMessages     ChatMessage[]
+
+  @@index([workspaceId])
+}
+
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  userId    String
+  role      String  @default("member")
+  project   Project @relation(fields: [projectId], references: [id])
+  user      User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+}
+
+model Task {
+  id            String    @id @default(cuid())
+  projectId     String
+  parentId      String?
+  title         String
+  status        String
+  priority      String
+  assigneeId    String?
+  start         String?
+  due           String
+  progress      Int       @default(0)
+  desc          String?
+  budget        Float?
+  spent         Float?
+  dependsOnJson String    @default("[]")
+  order         Int       @default(0)
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  recurrenceJson String?
+  // Stored in minutes (not decimal hours) to avoid float rounding — 8h=480,
+  // 2.5h=150. Logged/remaining are always computed from TimesheetEntry, never
+  // stored. hourCalculationMode: MANUAL | SUM_OF_SUBTASKS (rolls up children).
+  estimatedMinutes    Int?
+  hourCalculationMode String @default("MANUAL")
+  sprintId      String?
+
+  project       Project            @relation(fields: [projectId], references: [id])
+  parent        Task?              @relation("TaskChildren", fields: [parentId], references: [id])
+  children      Task[]             @relation("TaskChildren")
+  assignee      User?              @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy     User?              @relation("TaskCreator", fields: [createdById], references: [id])
+  sprint        Sprint?            @relation(fields: [sprintId], references: [id])
+  collaborators    TaskCollaborator[]
+  attachments      Attachment[]
+  notifications    Notification[]
+  comments         Comment[]
+  timesheetEntries TimesheetEntry[]
+  customFieldValues CustomFieldValue[]
+  approvals        Approval[]
+}
+
+// Extra people assigned to a task/subtask beyond its single primary
+// `assignee` — lets a task have multiple assignees without disturbing
+// anything (Board grouping, Workload capacity, Gantt rows, …) that keys
+// off the primary assignee field.
+model TaskCollaborator {
+  id     String @id @default(cuid())
+  taskId String
+  userId String
+  task   Task   @relation(fields: [taskId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+}
+
+// A logged block of time a user worked on a project (optionally scoped to
+// one task within it) — powers the per-project Timesheet tab in Budgets.
+model TimesheetEntry {
+  id        String   @id @default(cuid())
+  projectId String
+  taskId    String?
+  userId    String
+  date      String
+  hours     Float
+  note      String   @default("")
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+  task    Task?   @relation(fields: [taskId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+}
+
+model Comment {
+  id           String    @id @default(cuid())
+  taskId       String
+  authorId     String
+  body         String
+  mentionsJson String    @default("[]")
+  createdAt    DateTime  @default(now())
+  editedAt     DateTime?
+
+  task   Task @relation(fields: [taskId], references: [id])
+  author User @relation(fields: [authorId], references: [id])
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  taskId       String
+  filename     String
+  storedName   String
+  mimeType     String
+  size         Int
+  uploadedById String?
+  uploadedAt   DateTime @default(now())
+
+  task       Task  @relation(fields: [taskId], references: [id])
+  uploadedBy User? @relation(fields: [uploadedById], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  icon      String
+  color     String
+  text      String
+  time      DateTime @default(now())
+  unread    Boolean  @default(true)
+  projectId String?
+  taskId    String?
+
+  user User  @relation(fields: [userId], references: [id])
+  task Task? @relation(fields: [taskId], references: [id])
+}
+
+model AutomationRule {
+  id                String  @id @default(cuid())
+  projectId         String?
+  name              String
+  triggerType       String
+  triggerConfigJson String  @default("{}")
+  actionType        String
+  actionConfigJson  String  @default("{}")
+  enabled           Boolean @default(true)
+  createdById       String?
+
+  project Project? @relation(fields: [projectId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  action      String
+  entityType  String
+  entityId    String
+  detailJson  String   @default("{}")
+  createdAt   DateTime @default(now())
+  // Null for actions with no workspace context (register/login, personal
+  // API keys, SSO) — never null for anything workspace-scoped, which is
+  // everything the Workspace Settings Audit Log page reads.
+  workspaceId String?
+
+  @@index([workspaceId])
+}
+
+model Integration {
+  provider   String  @id
+  connected  Boolean @default(false)
+  configJson String  @default("{}")
+}
+
+// The Project Template Center's single source of truth. System templates
+// (isSystemTemplate:true, workspaceId:null) are visible to every workspace
+// and are never edited in place — only duplicated into a workspace's own
+// copy. Workspace templates are only ever visible inside the workspace
+// that created them.
+model ProjectTemplate {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  name             String
+  description      String   @default("")
+  category         String
+  industry         String   @default("General")
+  icon             String   @default("i-folder")
+  featured         Boolean  @default(false)
+  tagsJson         String   @default("[]")
+  defaultView      String?
+  isSystemTemplate Boolean  @default(false)
+  workspaceId      String?
+  workspace        Workspace? @relation(fields: [workspaceId], references: [id])
+  createdById      String?
+  createdBy        User?    @relation(fields: [createdById], references: [id])
+  isArchived       Boolean  @default(false)
+  version          Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  phases       ProjectTemplatePhase[]
+  tasks        ProjectTemplateTask[]
+  milestones   ProjectTemplateMilestone[]
+  customFields ProjectTemplateCustomField[]
+
+  @@index([workspaceId])
+  @@index([category])
+}
+
+model ProjectTemplatePhase {
+  id          String @id @default(cuid())
+  templateId  String
+  name        String
+  description String @default("")
+  sortOrder   Int    @default(0)
+
+  template ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  tasks    ProjectTemplateTask[]
+}
+
+// Phase -> Task -> (nested) Subtask, mirroring the real Task hierarchy
+// (parentTaskId self-relation, unlimited depth) so instantiation is a
+// straightforward structural copy rather than a shape translation.
+model ProjectTemplateTask {
+  id              String  @id @default(cuid())
+  templateId      String
+  phaseId         String?
+  parentTaskId    String?
+  name            String
+  description     String  @default("")
+  sortOrder       Int     @default(0)
+  defaultStatus   String  @default("todo")
+  defaultPriority String  @default("medium")
+  estimatedDays   Int?
+  // Ids of OTHER ProjectTemplateTask rows in this same template — remapped
+  // to real, newly-created Task ids at instantiation time.
+  dependsOnJson   String  @default("[]")
+
+  template ProjectTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  phase    ProjectTemplatePhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  parent   ProjectTemplateTask?  @relation("TplTaskChildren", fields: [parentTaskId], references: [id])
+  children ProjectTemplateTask[] @relation("TplTaskChildren")
+}
+
+// Relative scheduling only — never a fixed date. Instantiated as a real
+// top-level Task with due = project start + relativeDay, which is enough
+// for it to surface via the existing derived-milestone logic (top-N
+// soonest-due top-level tasks) with no new runtime concept required.
+model ProjectTemplateMilestone {
+  id          String @id @default(cuid())
+  templateId  String
+  name        String
+  relativeDay Int
+  sortOrder   Int    @default(0)
+
+  template ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model ProjectTemplateCustomField {
+  id          String @id @default(cuid())
+  templateId  String
+  name        String
+  type        String // text | number | select | date | checkbox
+  optionsJson String @default("[]")
+  sortOrder   Int    @default(0)
+
+  template ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model Goal {
+  id          String   @id @default(cuid())
+  projectId   String
+  ownerId     String
+  quarter     String
+  title       String
+  progress    Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+  owner   User    @relation(fields: [ownerId], references: [id])
+}
+
+// A generated API key for the public REST API (/api/v1/...). The raw key
+// is shown to the user once at creation time and never stored — only its
+// hash, checked on every request by requireApiKey.
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  keyHash    String    @unique
+  keyPrefix  String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// An outbound webhook subscription — MujuzPM POSTs an HMAC-signed JSON
+// payload to `url` whenever one of `eventsJson` fires (see lib/webhooks.js).
+model Webhook {
+  id          String   @id @default(cuid())
+  url         String
+  secret      String
+  eventsJson  String   @default("[]")
+  enabled     Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+}
+
+// A running "start/stop" timer — at most one per user. Stopping it computes
+// elapsed hours and writes a real TimesheetEntry, then this row is deleted.
+model ActiveTimer {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  projectId String
+  taskId    String?
+  startedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Issue {
+  id          String    @id @default(cuid())
+  projectId   String
+  title       String
+  description String    @default("")
+  severity    String    @default("medium")
+  status      String    @default("open")
+  environment String    @default("")
+  reporterId  String
+  assigneeId  String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  project  Project @relation(fields: [projectId], references: [id])
+  reporter User    @relation("IssueReporter", fields: [reporterId], references: [id])
+  assignee User?   @relation("IssueAssignee", fields: [assigneeId], references: [id])
+}
+
+model CustomFieldDef {
+  id          String @id @default(cuid())
+  projectId   String
+  name        String
+  type        String // text | number | select | date | checkbox
+  optionsJson String @default("[]")
+  order       Int    @default(0)
+
+  project Project            @relation(fields: [projectId], references: [id])
+  values  CustomFieldValue[]
+}
+
+model CustomFieldValue {
+  id      String @id @default(cuid())
+  taskId  String
+  fieldId String
+  value   String @default("")
+
+  task  Task           @relation(fields: [taskId], references: [id])
+  field CustomFieldDef @relation(fields: [fieldId], references: [id])
+
+  @@unique([taskId, fieldId])
+}
+
+model Sprint {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  startDate String
+  endDate   String
+  goal      String   @default("")
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+  tasks   Task[]
+}
+
+// A formal sign-off step on a task — distinct from just setting a status.
+// Multiple rows sharing a `groupId` form one multi-step approval chain,
+// ordered by `sequence`: only the row currently at "pending" is actionable;
+// later steps sit at "waiting" until every prior step approves. A single
+// rejection anywhere in the chain cascades the remaining "waiting" steps to
+// "rejected" too (see lib approvals cascade logic).
+model Approval {
+  id            String    @id @default(cuid())
+  taskId        String
+  requestedById String
+  approverId    String
+  status        String    @default("pending") // waiting | pending | approved | rejected
+  note          String    @default("")
+  groupId       String?
+  sequence      Int       @default(0)
+  createdAt     DateTime  @default(now())
+  decidedAt     DateTime?
+
+  task        Task @relation(fields: [taskId], references: [id])
+  requestedBy User @relation("ApprovalRequestedBy", fields: [requestedById], references: [id])
+  approver    User @relation("ApprovalApprover", fields: [approverId], references: [id])
+}
+
+// Project-scoped team chat — delivered live over the same SSE stream used
+// for board/notification updates (see lib/sse.js).
+model ChatMessage {
+  id        String   @id @default(cuid())
+  projectId String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+  author  User    @relation(fields: [authorId], references: [id])
+}
+
+// The multi-tenant boundary: every Project belongs to exactly one
+// Workspace, and a User only ever sees a Workspace through an ACTIVE
+// WorkspaceMember row (membership) or a matching WorkspaceInvitation
+// (not-yet-joined) — never by simply having a MujuzPM account.
+model Workspace {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  timezone       String   @default("UTC")
+  logoUrl        String?
+  createdBy      String
+  // Drives the post-creation onboarding wizard shown only to the ADMIN:
+  // 'invite' -> 'project' -> 'preferences' -> null (finished). Pre-existing
+  // (migrated) workspaces are seeded with null since they're already "done".
+  onboardingStep String?  @default("invite")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Workspace Settings → General
+  description     String  @default("")
+  industry        String  @default("")
+  teamSize        String  @default("")
+  defaultLanguage String  @default("en")
+  dateFormat      String  @default("DD/MM/YYYY")
+  timeFormat      String  @default("24h")
+  startOfWeek     String  @default("Monday")
+  isArchived      Boolean @default(false)
+
+  members     WorkspaceMember[]
+  invitations WorkspaceInvitation[]
+  projects    Project[]
+  templates   ProjectTemplate[]
+  settings    WorkspaceSettings?
+}
+
+// One row per workspace — everything from Workspace Settings that doesn't
+// have a more natural home directly on Workspace/WorkspaceMember/Project.
+// Lazily upserted with defaults on first read (see workspaceSettings.js),
+// so older workspaces never need a backfill script.
+model WorkspaceSettings {
+  id          String @id @default(cuid())
+  workspaceId String @unique
+
+  // Work Schedule
+  workingDaysJson String @default("[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\"]")
+  workStart       String @default("09:00")
+  workEnd         String @default("17:00")
+  weeklyCapacity  Int    @default(40)
+  holidayCalendar String @default("")
+
+  // Project defaults
+  defaultProjectView        String  @default("overview")
+  allowMembersCreateProjects Boolean @default(false)
+  projectIdPrefix            String  @default("")
+
+  // Task defaults
+  allowMemberTaskCreation Boolean @default(true)
+  allowViewerComments     Boolean @default(false)
+  taskIdPrefix            String  @default("")
+  defaultAssigneeBehavior String  @default("unassigned") // unassigned | creator
+  completedTaskBehavior   String  @default("keep")        // keep | archive
+
+  // Timesheet settings
+  timeTrackingEnabled     Boolean @default(true)
+  requireTaskSelection    Boolean @default(false)
+  requireProjectSelection Boolean @default(true)
+  allowManualEntry        Boolean @default(true)
+  allowTimer              Boolean @default(true)
+  requireNotes            Boolean @default(false)
+  allowFutureEntries      Boolean @default(false)
+  allowBackdatedEntries   Boolean @default(true)
+  timesheetWeekStart      String  @default("Monday")
+  submissionFrequency     String  @default("weekly")
+
+  // Notification defaults (in-app only — no email sender exists yet)
+  notifyTaskAssignment    Boolean @default(true)
+  notifyTaskDueSoon       Boolean @default(true)
+  notifyTaskOverdue       Boolean @default(true)
+  notifyProjectStatus     Boolean @default(true)
+  notifyProjectDeadline   Boolean @default(true)
+  notifyCommentsMentions  Boolean @default(true)
+  notifyInvitationUpdates Boolean @default(true)
+  notifyTimesheetSubmit   Boolean @default(true)
+  notifyTimesheetApproval Boolean @default(true)
+
+  // Security — only real, enforceable controls
+  allowedEmailDomainsJson String  @default("[]")
+  allowExternalSharing    Boolean @default(true)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+// Workspace-level role — OWNER | ADMIN | MEMBER — separate from a
+// project-level ProjectMember role (member | viewer). status lets a
+// removed member's history stay auditable without a hard delete.
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String   // OWNER | ADMIN | MEMBER
+  status      String   @default("ACTIVE") // ACTIVE | REMOVED
+  joinedAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@unique([workspaceId, userId])
+}
+
+// An invited email is not a member until they sign up (or already have an
+// account) with that exact email and explicitly accept.
+model WorkspaceInvitation {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        String    // ADMIN | MEMBER (never OWNER via invitation)
+  status      String    @default("PENDING") // PENDING | ACCEPTED | DECLINED
+  token       String    @unique
+  expiresAt   DateTime
+  invitedBy   String
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([email])
+}

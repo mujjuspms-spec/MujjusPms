@@ -1,0 +1,8 @@
+{
+  "name": "mujuzpm-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vercel-build": "npm --prefix backend install && npm --prefix backend run build:vercel && npm --prefix frontend install && npm --prefix frontend run build"
+  }
+}

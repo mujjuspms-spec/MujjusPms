@@ -1,0 +1,66 @@
+/* ==========================================================================
+   MujuzPM Nova — Design Tokens
+   Dark-first, glass + glow, electric violet/cyan brand identity.
+   ========================================================================== */
+:root{
+  color-scheme: dark;
+  /* brand — electric violet, gradient-paired with cyan */
+  --brand-50:#161335; --brand-100:#241f52; --brand-300:#8b7fff;
+  --brand-400:#7a6bff;
+  --brand-500:#6a5cff; --brand-600:#5847e6; --brand-700:#4636c2; --brand-800:#352a94;
+  --brand-contrast:#ffffff;
+  --accent-cyan:#22e5ff;
+  --accent-cyan-dim:#1aa8c2;
+  --brand-gradient: linear-gradient(135deg, var(--brand-500), var(--accent-cyan));
+
+  --cat-1:#3aa0ff; --cat-2:#ff8a3d; --cat-3:#2de8b0; --cat-4:#ffcb47;
+  --cat-5:#ff6fb0; --cat-6:#4ade80; --cat-7:#9b7bff; --cat-8:#ff5c6c;
+
+  --status-good:#2de8b0; --status-warning:#ffcb47; --status-serious:#ff8a5e; --status-critical:#ff5c6c;
+  --status-good-text:#2de8b0;
+
+  --surface-0:#060810; --surface-1:#0d1220; --surface-2:#131a2c; --surface-sunken:#0a0e18;
+  --ink-primary:#eef1fb; --ink-secondary:#a7b0cc; --ink-muted:#6b7394;
+  --gridline:#1b2338; --baseline:#242d47;
+  --border:rgba(140,160,255,0.14); --border-strong:rgba(150,168,255,0.26);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 8px 28px rgba(3,4,12,0.55);
+  --shadow-lg: 0 20px 60px rgba(2,3,10,0.65);
+  --glow-brand: 0 0 0 1px rgba(106,92,255,0.35), 0 4px 24px rgba(106,92,255,0.28);
+  --glow-cyan: 0 0 0 1px rgba(34,229,255,0.3), 0 4px 20px rgba(34,229,255,0.22);
+
+  --radius-sm:7px; --radius-md:11px; --radius-lg:16px; --radius-xl:22px;
+  --sidebar-w:268px; --sidebar-w-collapsed:76px; --topbar-h:64px;
+  /* One typeface for the whole app — Space Grotesk — with Arabic and the
+     logo wordmark as the only deliberate exceptions. */
+  --font-en: 'Space Grotesk', 'Inter', system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ar: 'IBM Plex Sans Arabic', 'Inter', system-ui, sans-serif;
+  --font-cursive: 'Pacifico', 'Segoe Script', 'Brush Script MT', cursive;
+  --font-mono: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-display: 'Space Grotesk', var(--font-en);
+}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --brand-50:#f4f2ff; --brand-100:#eae7ff; --brand-300:#8f7dff;
+  --brand-400:#6d5aff;
+  --brand-500:#5847e6; --brand-600:#4636c2; --brand-700:#352a94; --brand-800:#241f6e;
+  --brand-contrast:#ffffff;
+  --accent-cyan:#0aa8c2;
+  --accent-cyan-dim:#0a8a9e;
+
+  --cat-1:#2a78d6; --cat-2:#e2650f; --cat-3:#0fae82; --cat-4:#c98500;
+  --cat-5:#d6427f; --cat-6:#1a9d4d; --cat-7:#6d4de0; --cat-8:#d33b4a;
+
+  --status-good:#0fae82; --status-warning:#c98500; --status-serious:#e2650f; --status-critical:#d33b4a;
+  --status-good-text:#0a8a68;
+
+  --surface-0:#f4f5fb; --surface-1:#ffffff; --surface-2:#ffffff; --surface-sunken:#eceefa;
+  --ink-primary:#12142b; --ink-secondary:#4a4f72; --ink-muted:#8489ab;
+  --gridline:#e3e5f3; --baseline:#cfd2ea;
+  --border:rgba(40,44,90,0.10); --border-strong:rgba(40,44,90,0.20);
+  --shadow-sm: 0 1px 2px rgba(30,20,90,0.06);
+  --shadow-md: 0 8px 24px rgba(30,20,90,0.10);
+  --shadow-lg: 0 20px 50px rgba(30,20,90,0.16);
+  --glow-brand: 0 0 0 1px rgba(88,71,230,0.18), 0 4px 20px rgba(88,71,230,0.16);
+  --glow-cyan: 0 0 0 1px rgba(10,168,194,0.18), 0 4px 18px rgba(10,168,194,0.14);
+}

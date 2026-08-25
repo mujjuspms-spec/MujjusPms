@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "Prisma.prisma",
+    "oxc.oxc-vscode",
+    "esbenp.prettier-vscode",
+    "mikestead.dotenv",
+    "humao.rest-client"
+  ]
+}

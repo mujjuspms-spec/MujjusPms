@@ -1,0 +1,14 @@
+node_modules
+
+# Keep environment variables out of version control
+.env
+
+/src/generated/prisma
+
+# Local SQLite database — reproducible via `npm run db:migrate && npm run db:seed`
+dev.db
+dev.db-journal
+
+# User-uploaded files
+uploads/*
+!uploads/.gitkeep
