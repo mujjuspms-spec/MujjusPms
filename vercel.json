@@ -1,6 +1,5 @@
 {
   "cleanUrls": true,
-  "outputDirectory": "frontend/dist",
   "rewrites": [
     {
       "source": "/api/(.*)",
