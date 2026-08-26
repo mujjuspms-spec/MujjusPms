@@ -8,7 +8,7 @@ import { fetchSsoStatus } from '../services/integrations';
 
 export default function Login() {
   const { t } = useI18n();
-  const { login } = useAuth();
+  const { login, error: globalAuthError } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState('email');
   const [email, setEmail] = useState('');
@@ -47,7 +47,7 @@ export default function Login() {
         <button className={tab === 'nafath' ? 'active' : ''} onClick={() => setTab('nafath')}>{t('login.tab.nafath')}</button>
       </div>
 
-      {err && <div style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)', fontSize: 12.5, padding: '8px 11px', borderRadius: 8, marginBottom: 14 }}>{err}</div>}
+      {(err || globalAuthError) && <div style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)', fontSize: 12.5, padding: '8px 11px', borderRadius: 8, marginBottom: 14 }}>{err || globalAuthError}</div>}
 
       {tab === 'email' && (
         <div>
