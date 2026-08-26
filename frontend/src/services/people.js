@@ -17,9 +17,11 @@ export async function fetchPeople() {
 }
 
 export async function createPerson(payload) {
-  const { person: newPerson } = await apiFetch('/api/people', { method: 'POST', body: JSON.stringify(payload) });
-  PEOPLE.push(newPerson);
-  return newPerson;
+  const res = await apiFetch('/api/people', { method: 'POST', body: JSON.stringify(payload) });
+  if (res.wasInvited) return res;
+  
+  PEOPLE.push(res.person);
+  return res.person;
 }
 
 // A person's uploaded avatar image, or null if they haven't set one (in

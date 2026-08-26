@@ -42,7 +42,34 @@ router.post('/', requireAuth, requireWorkspaceContext, requireWorkspaceRole('ADM
 
   const normalizedEmail = email.trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
+  if (existing) {
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: req.workspaceId, userId: existing.id } },
+    });
+    if (membership && membership.status === 'ACTIVE') {
+      return res.status(409).json({ error: 'This user is already a member of this workspace' });
+    }
+
+    const pendingInvite = await prisma.workspaceInvitation.findFirst({
+      where: { workspaceId: req.workspaceId, email: normalizedEmail, status: 'PENDING' },
+    });
+    if (pendingInvite) {
+      return res.status(409).json({ error: 'An invitation is already pending for this user' });
+    }
+
+    const invitation = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: req.workspaceId,
+        email: normalizedEmail,
+        role: workspaceRole,
+        token: nanoid(24),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        invitedBy: req.user.id,
+      },
+    });
+    await logAudit(req.user.id, 'invite', 'workspace', req.workspaceId, { email: normalizedEmail, role: workspaceRole }, req.workspaceId);
+    return res.status(201).json({ wasInvited: true, email: normalizedEmail });
+  }
 
   const { user } = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({

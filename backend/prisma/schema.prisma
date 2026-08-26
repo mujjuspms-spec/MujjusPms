@@ -27,6 +27,10 @@ model User {
   workDays          String    @default("[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\"]")
   workStart         String    @default("09:00")
   workEnd           String    @default("17:00")
+  
+  approvalStatus    String    @default("APPROVED") // PENDING | APPROVED | REJECTED
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
   passwordChangedAt DateTime?
   lastLoginAt       DateTime?
 

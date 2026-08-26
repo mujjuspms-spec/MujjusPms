@@ -40,6 +40,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { WorkspaceProvider, useWorkspace } from './hooks/useWorkspace';
 import { TasksProvider } from './hooks/useTasksStore';
 import CreateWorkspace from './pages/onboarding/CreateWorkspace';
+import AdminApprovals from './pages/AdminApprovals';
 import InvitationScreen from './pages/onboarding/InvitationScreen';
 import ChooserScreen from './pages/onboarding/ChooserScreen';
 import WorkspaceOnboardingWizard from './pages/onboarding/WorkspaceOnboardingWizard';
@@ -139,6 +140,7 @@ function AppRoutes() {
         <Route path="/team/:id" element={<MemberTimesheet />} />
         <Route path="/timesheets" element={<Timesheets />} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/admin/approvals" element={<AdminApprovals />} />
         <Route path="/goals" element={<Goals />} />
         <Route path="/issues" element={<Issues />} />
         <Route path="/approvals" element={<MyApprovals />} />

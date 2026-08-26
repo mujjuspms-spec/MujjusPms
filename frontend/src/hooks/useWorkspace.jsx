@@ -32,11 +32,14 @@ export function WorkspaceProvider({ children }) {
 
   const resolve = useCallback(async () => {
     setScreen('checking');
-    const list = await fetchMyMemberships();
+    const [list, pending] = await Promise.all([
+      fetchMyMemberships(),
+      fetchPendingInvitations()
+    ]);
+    
+    setPendingInvitations(pending);
 
     if (list.length === 0) {
-      const pending = await fetchPendingInvitations();
-      setPendingInvitations(pending);
       setMemberships([]);
       setActiveWorkspace(null);
       if (pending.length === 1) { setScreen('invitation'); return; }

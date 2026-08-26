@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import Icon from './Icon';
 import { createPerson } from '../services/people';
+import { useToast } from './Toast';
 
 export default function AddTeamMemberModal({ onClose }) {
+  const { show } = useToast();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('');
@@ -16,7 +18,10 @@ export default function AddTeamMemberModal({ onClose }) {
     setSaving(true);
     setError('');
     try {
-      await createPerson({ name: name.trim(), email: email.trim(), role: role.trim(), workspaceRole, password });
+      const res = await createPerson({ name: name.trim(), email: email.trim(), role: role.trim(), workspaceRole, password });
+      if (res && res.wasInvited) {
+        show('Invitation sent. They can log in to their existing account to accept it.');
+      }
       onClose();
     } catch (e) {
       setError(e.message || 'Could not add this team member');

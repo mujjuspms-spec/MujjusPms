@@ -176,6 +176,11 @@ export async function requireAdmin(req, res, next) {
   next();
 }
 
+export function requireGlobalAdmin(req, res, next) {
+  if (req.user.globalRole !== 'admin') return res.status(403).json({ error: 'Global admin access required' });
+  next();
+}
+
 export function requireProjectAccess(getProjectId = (req) => req.params.projectId || req.params.id) {
   return async (req, res, next) => {
     const projectId = getProjectId(req);

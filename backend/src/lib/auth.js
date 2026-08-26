@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { supabase } from './supabase.js';
+import { sendAdminApprovalNotification } from './resend.js';
 
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -19,13 +20,17 @@ export async function requireAuth(req, res, next) {
       const name = supaUser.user_metadata?.name || email.split('@')[0];
       const initials = name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
+      const adminEmail = process.env.ADMIN_APPROVAL_EMAIL?.toLowerCase();
+      const isGlobalAdmin = email === adminEmail;
+
       user = await prisma.user.create({
         data: {
           id: supaUser.id,
           name,
           email,
           role: '',
-          globalRole: 'member',
+          globalRole: isGlobalAdmin ? 'admin' : 'member',
+          approvalStatus: isGlobalAdmin ? 'APPROVED' : 'PENDING',
           color: 'var(--cat-1)',
           initials,
           passwordHash: '',
@@ -33,6 +38,17 @@ export async function requireAuth(req, res, next) {
           allocated: 0,
         },
       });
+
+      if (!isGlobalAdmin) {
+        sendAdminApprovalNotification(user).catch(err => console.error(err));
+      }
+    }
+
+    if (user.approvalStatus === 'PENDING') {
+      return res.status(403).json({ error: 'Your account is awaiting administrator approval.' });
+    }
+    if (user.approvalStatus === 'REJECTED') {
+      return res.status(403).json({ error: 'Your registration has been rejected.' });
     }
 
     req.user = user;

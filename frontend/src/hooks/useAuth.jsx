@@ -36,9 +36,18 @@ export function AuthProvider({ children }) {
       const { user: me } = await apiFetch('/api/auth/me');
       setUser(me);
       setStatus('signedIn');
-    } catch {
-      supabase.auth.signOut();
-      setStatus('signedOut');
+      setError(null);
+    } catch (e) {
+      if (e.message.includes('awaiting administrator approval') || e.message.includes('registration has been rejected')) {
+        // Keep the Supabase session, but mark application status as signedOut so the dashboard is blocked.
+        setUser(null);
+        setStatus('signedOut');
+        setError(e.message);
+      } else {
+        supabase.auth.signOut();
+        setStatus('signedOut');
+        setError(e.message);
+      }
     }
   }
 

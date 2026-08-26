@@ -34,6 +34,7 @@ import shareRoutes from './routes/share.js';
 import workspaceRoutes from './routes/workspaces.js';
 import workspaceSettingsRoutes from './routes/workspaceSettings.js';
 import projectTemplateRoutes from './routes/projectTemplates.js';
+import adminRoutes from './routes/admin.js';
 
 // A single bad request should never take the whole server down.
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
@@ -75,6 +76,7 @@ app.use('/api/share', shareRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/workspaces/:id/settings', workspaceSettingsRoutes);
 app.use('/api/project-templates', projectTemplateRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

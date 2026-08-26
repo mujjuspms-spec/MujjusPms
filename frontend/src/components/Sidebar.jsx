@@ -59,9 +59,10 @@ function NavItem({ item, onNavigate }) {
 }
 
 function WorkspaceSwitcher() {
-  const { memberships, activeWorkspace, switchWorkspace } = useWorkspace();
+  const { memberships, activeWorkspace, pendingInvitations, switchWorkspace, joinInvitation } = useWorkspace();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   if (!activeWorkspace) return null;
   const initials = activeWorkspace.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -91,6 +92,39 @@ function WorkspaceSwitcher() {
                 <span className="truncate grow">{m.workspace.name}</span>
               </div>
             ))}
+            
+            {pendingInvitations && pendingInvitations.length > 0 && (
+              <>
+                <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+                <div style={{ padding: '4px 6px', fontSize: 11, color: 'var(--ink-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Pending Invitations
+                </div>
+                {pendingInvitations.map((invite) => (
+                  <div
+                    key={invite.token}
+                    className="flex items-center gap-8"
+                    style={{ padding: '8px 6px', borderRadius: 8, cursor: joining ? 'default' : 'pointer', fontSize: 13, color: 'var(--ink-secondary)' }}
+                    onClick={async () => {
+                      if (joining) return;
+                      setJoining(true);
+                      try {
+                        await joinInvitation(invite.token);
+                        setOpen(false);
+                      } catch (e) {
+                        alert(e.message || 'Could not join workspace');
+                      } finally {
+                        setJoining(false);
+                      }
+                    }}
+                  >
+                    <Icon name="i-mail" className="icon icon-sm" />
+                    <span className="truncate grow">{invite.workspace.name}</span>
+                    <span className="pill pill-done" style={{ padding: '2px 6px', fontSize: 10 }}>Accept</span>
+                  </div>
+                ))}
+              </>
+            )}
+
             <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
             <div
               className="flex items-center gap-8"

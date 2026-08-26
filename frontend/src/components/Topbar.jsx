@@ -108,6 +108,9 @@ export default function Topbar({ onNewTask, onOpenPalette, onToggleMobileNav }) 
               {isWorkspaceAdmin ? (
                 <button className="dd-item" onClick={() => navigate('/audit-log')}><Icon name="i-shield" className="icon icon-sm" />Audit log</button>
               ) : null}
+              {user?.globalRole === 'admin' ? (
+                <button className="dd-item" onClick={() => navigate('/admin/approvals')}><Icon name="i-check" className="icon icon-sm" />Admin Approvals</button>
+              ) : null}
               <div className="dd-sep" />
               <button className="dd-item" onClick={logout}><Icon name="i-logout" className="icon icon-sm" />{t('top.signout')}</button>
             </div>
