@@ -28,7 +28,7 @@ export default function Login() {
     setBusy(true); setErr(null);
     try {
       await login(email, password);
-      navigate('/dashboard');
+      // We rely on RedirectIfAuthed to navigate to dashboard once status === 'signedIn'
     } catch (e) {
       setErr(e.message === 'Invalid email or password' ? 'Incorrect email or password.' : e.message);
     } finally {

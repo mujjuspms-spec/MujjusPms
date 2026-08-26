@@ -55,6 +55,26 @@ export function AuthProvider({ children }) {
     setError(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
+    
+    // Explicitly fetch user profile and check approval status before completing login
+    try {
+      const { user: me } = await apiFetch('/api/auth/me');
+      setUser(me);
+      setStatus('signedIn');
+      setError(null);
+    } catch (e) {
+      if (e.message.includes('awaiting administrator approval') || e.message.includes('registration has been rejected')) {
+        setUser(null);
+        setStatus('signedOut');
+        setError(e.message);
+        throw new Error(e.message);
+      } else {
+        await supabase.auth.signOut();
+        setStatus('signedOut');
+        setError(e.message);
+        throw new Error(e.message);
+      }
+    }
   }
 
   async function register(name, email, password) {
