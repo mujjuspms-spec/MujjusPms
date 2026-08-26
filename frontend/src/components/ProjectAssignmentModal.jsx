@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import Modal from './Modal';
 import { PROJECTS, fetchProjectMembers, addProjectMember, removeProjectMember } from '../services/projects';
+import { useToast } from './Toast';
 
 // Assign/unassign a Member or Viewer to specific projects — existence of a
 // ProjectMember row is the sole meaning of "assigned"; write-vs-read-only
 // comes entirely from the person's workspace role, not from anything here.
 export default function ProjectAssignmentModal({ personId, personName, onClose }) {
+  const { show } = useToast();
   const [assignedIds, setAssignedIds] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [search, setSearch] = useState('');
@@ -31,7 +33,20 @@ export default function ProjectAssignmentModal({ personId, personName, onClose }
         return next;
       });
     } catch (e) {
-      window.alert(e.message || 'Could not update project access');
+      // Someone/something else changed this membership since the modal
+      // opened (real-time updates aren't guaranteed to arrive — see
+      // lib/sse.js). Re-check the actual state instead of leaving the
+      // checkbox showing something the server just told us is wrong.
+      const members = await fetchProjectMembers(projectId).catch(() => null);
+      if (members) {
+        const actuallyAssigned = members.some((m) => m.userId === personId);
+        setAssignedIds((prev) => {
+          const next = new Set(prev);
+          if (actuallyAssigned) next.add(projectId); else next.delete(projectId);
+          return next;
+        });
+      }
+      show(e.message || 'Could not update project access', 'critical');
     } finally {
       setBusyId(null);
     }
