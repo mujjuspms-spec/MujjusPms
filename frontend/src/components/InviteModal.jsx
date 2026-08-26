@@ -16,7 +16,16 @@ export default function InviteModal({ onClose }) {
     if (!email.trim() || busy) return;
     setBusy(true); setError('');
     try {
-      await sendInvitation(activeWorkspace.id, email.trim(), role);
+      const { invitations, skipped } = await sendInvitation(activeWorkspace.id, email.trim(), role);
+      if (invitations.length === 0 && skipped.length > 0) {
+        // The backend silently skips emails that are already an active
+        // member or already have a pending invite — surface that instead
+        // of closing as if it worked, which previously looked identical
+        // to a successful invite for someone already in the workspace.
+        setError('This person is already in the workspace, or already has a pending invitation.');
+        setBusy(false);
+        return;
+      }
       onClose();
     } catch (e) {
       setError(e.message || 'Could not send this invitation');
