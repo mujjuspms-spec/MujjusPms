@@ -16,12 +16,11 @@ export async function fetchPeople() {
   return PEOPLE;
 }
 
+// Always sends invitation(s) now — never creates a person directly, so the
+// response is always { invitations, skipped, existingUser }, never a
+// `person` to push into PEOPLE (nothing exists to add until they accept).
 export async function createPerson(payload) {
-  const res = await apiFetch('/api/people', { method: 'POST', body: JSON.stringify(payload) });
-  if (res.wasInvited) return res;
-  
-  PEOPLE.push(res.person);
-  return res.person;
+  return apiFetch('/api/people', { method: 'POST', body: JSON.stringify(payload) });
 }
 
 // A person's uploaded avatar image, or null if they haven't set one (in

@@ -16,6 +16,7 @@ import ChatPanel from '../components/ChatPanel';
 import CustomFieldsPanel from '../components/CustomFieldsPanel';
 import SaveAsTemplateModal from '../components/SaveAsTemplateModal';
 import EditProjectModal from '../components/EditProjectModal';
+import AddTeamMemberModal from '../components/AddTeamMemberModal';
 import { enableShare, disableShare } from '../services/share';
 import { useI18n } from '../hooks/useI18n';
 import { useAuth } from '../hooks/useAuth';
@@ -68,6 +69,7 @@ export default function ProjectDetail() {
   const [collapsedIds, setCollapsedIds] = useState(() => new Set());
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   function toggleGanttCollapse(taskId) {
     setCollapsedIds((prev) => {
@@ -528,6 +530,14 @@ export default function ProjectDetail() {
 
       {tab === 'team' && (
         <div className="col gap-16">
+          {perms.canManageMembers && (
+            <div className="card card-pad flex items-center justify-between">
+              <div style={{ fontSize: 12.5, color: 'var(--ink-muted)' }}>Invite someone who isn't in this workspace yet, or isn't listed below.</div>
+              <button className="btn btn-secondary btn-sm" onClick={() => setInviteOpen(true)}>
+                <Icon name="i-users" className="icon icon-sm" />Invite someone new
+              </button>
+            </div>
+          )}
           {perms.canManageMembers && availableToAdd.length > 0 && (
             <div className="card card-pad flex items-center gap-10">
               <select className="grow" style={{ border: '1px solid var(--border-strong)', background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)', padding: '9px 11px', fontSize: 13, color: 'var(--ink-primary)' }} value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)}>
@@ -581,6 +591,7 @@ export default function ProjectDetail() {
       {addOpen && <QuickAddModal defaultProjectId={proj.id} defaultStatus={addDefaultStatus} onClose={() => setAddOpen(false)} />}
       {saveTemplateOpen && <SaveAsTemplateModal projectId={proj.id} defaultName={proj.name} onClose={() => setSaveTemplateOpen(false)} />}
       {editOpen && <EditProjectModal project={proj} onClose={() => setEditOpen(false)} onSaved={() => bump((n) => n + 1)} />}
+      {inviteOpen && <AddTeamMemberModal lockedProject={{ id: proj.id, name: proj.name }} onClose={() => setInviteOpen(false)} />}
     </section>
   );
 }

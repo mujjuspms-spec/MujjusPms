@@ -37,6 +37,7 @@ model User {
   ownedProjects      Project[]          @relation("ProjectOwner")
   memberships        ProjectMember[]
   workspaceMemberships WorkspaceMember[]
+  invitationsReceived  WorkspaceInvitation[]
   tasksAssigned      Task[]             @relation("TaskAssignee")
   tasksCreated       Task[]             @relation("TaskCreator")
   taskCollaborations TaskCollaborator[]
@@ -96,6 +97,7 @@ model Project {
   customFields     CustomFieldDef[]
   sprints          Sprint[]
   chatMessages     ChatMessage[]
+  invitations      WorkspaceInvitation[]
 
   @@index([workspaceId])
 }
@@ -211,18 +213,20 @@ model Attachment {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  icon      String
-  color     String
-  text      String
-  time      DateTime @default(now())
-  unread    Boolean  @default(true)
-  projectId String?
-  taskId    String?
+  id           String   @id @default(cuid())
+  userId       String
+  icon         String
+  color        String
+  text         String
+  time         DateTime @default(now())
+  unread       Boolean  @default(true)
+  projectId    String?
+  taskId       String?
+  invitationId String?
 
-  user User  @relation(fields: [userId], references: [id])
-  task Task? @relation(fields: [taskId], references: [id])
+  user       User                 @relation(fields: [userId], references: [id])
+  task       Task?                @relation(fields: [taskId], references: [id])
+  invitation WorkspaceInvitation? @relation(fields: [invitationId], references: [id])
 }
 
 model AutomationRule {
@@ -593,14 +597,15 @@ model WorkspaceSettings {
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 }
 
-// Workspace-level role — OWNER | ADMIN | MEMBER — separate from a
-// project-level ProjectMember role (member | viewer). status lets a
-// removed member's history stay auditable without a hard delete.
+// Workspace-level role — ADMIN | MEMBER | VIEWER — separate from
+// ProjectMember, which is a pure per-project visibility marker (see its
+// own comment) rather than carrying its own role. status lets a removed
+// member's history stay auditable without a hard delete.
 model WorkspaceMember {
   id          String   @id @default(cuid())
   workspaceId String
   userId      String
-  role        String   // OWNER | ADMIN | MEMBER
+  role        String   // ADMIN | MEMBER | VIEWER
   status      String   @default("ACTIVE") // ACTIVE | REMOVED
   joinedAt    DateTime @default(now())
 
@@ -611,20 +616,29 @@ model WorkspaceMember {
 }
 
 // An invited email is not a member until they sign up (or already have an
-// account) with that exact email and explicitly accept.
+// account) with that exact email and explicitly accept. When projectId is
+// set, acceptance grants access to exactly that project — never the whole
+// workspace's project list — alongside the workspace membership itself.
 model WorkspaceInvitation {
-  id          String    @id @default(cuid())
-  workspaceId String
-  email       String
-  role        String    // ADMIN | MEMBER (never OWNER via invitation)
-  status      String    @default("PENDING") // PENDING | ACCEPTED | DECLINED
-  token       String    @unique
-  expiresAt   DateTime
-  invitedBy   String
-  createdAt   DateTime  @default(now())
-  acceptedAt  DateTime?
+  id            String    @id @default(cuid())
+  workspaceId   String
+  projectId     String?                       // null = workspace-only invite
+  email         String
+  name          String?                       // captured at invite time, for the pending-invite row's display name
+  role          String    // ADMIN | MEMBER | VIEWER — the workspace role granted/confirmed on accept
+  status        String    @default("PENDING") // PENDING | ACCEPTED | DECLINED | CANCELLED
+  token         String    @unique
+  expiresAt     DateTime
+  invitedBy     String
+  inviteeUserId String?                       // set on acceptance — the User who accepted, new or pre-existing
+  createdAt     DateTime  @default(now())
+  acceptedAt    DateTime?
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id])
+  project       Project?       @relation(fields: [projectId], references: [id])
+  invitee       User?          @relation(fields: [inviteeUserId], references: [id])
+  notifications Notification[]
 
   @@index([email])
+  @@index([projectId])
 }

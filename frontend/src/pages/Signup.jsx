@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import Icon from '../components/Icon';
 import AuthLayout from '../components/AuthLayout';
 import { useI18n } from '../hooks/useI18n';
 import { useAuth } from '../hooks/useAuth';
 import { fetchSsoStatus } from '../services/integrations';
+import { peekInvitation } from '../services/workspaces';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -12,6 +13,8 @@ export default function Signup() {
   const { t } = useI18n();
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get('invite');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,8 +25,19 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [sso, setSso] = useState({ google: false, microsoft: false });
+  const [invite, setInvite] = useState(null); // { email, workspaceName, projectName, role, expired } | null
+  const [inviteChecked, setInviteChecked] = useState(!inviteToken);
+  const [confirmSent, setConfirmSent] = useState(false);
 
   useEffect(() => { fetchSsoStatus().then(setSso).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    peekInvitation(inviteToken)
+      .then((inv) => { setInvite(inv); if (!inv.expired) setEmail(inv.email); })
+      .catch(() => setInvite({ expired: true }))
+      .finally(() => setInviteChecked(true));
+  }, [inviteToken]);
 
   function validate() {
     const fe = {};
@@ -40,8 +54,15 @@ export default function Signup() {
     if (!validate()) return;
     setBusy(true);
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password);
-      navigate('/dashboard');
+      await register(name.trim(), email.trim().toLowerCase(), password, inviteToken || null);
+      if (inviteToken) {
+        // Supabase email confirmation means there's no session yet — the
+        // invitation is only linked and accepted once they confirm and
+        // first log in (see auth.js's auto-provision block).
+        setConfirmSent(true);
+      } else {
+        navigate('/dashboard');
+      }
     } catch (e) {
       setErr(e.message === 'An account with this email already exists' ? 'signup.duplicate' : e.message);
     } finally {
@@ -49,10 +70,36 @@ export default function Signup() {
     }
   }
 
+  if (confirmSent) {
+    return (
+      <AuthLayout>
+        <h2 style={{ fontSize: 20, marginBottom: 4 }}>Check your email</h2>
+        <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 20 }}>
+          We sent a confirmation link to <b>{email}</b>. Once confirmed, you'll be added to {invite?.projectName || invite?.workspaceName} automatically.
+        </p>
+        <p className="auth-alt-link"><Link to="/login">{t('signup.signin')}</Link></p>
+      </AuthLayout>
+    );
+  }
+
+  const inviteLocked = inviteToken && invite && !invite.expired;
+  const inviteInvalid = inviteToken && inviteChecked && (!invite || invite.expired);
+
   return (
     <AuthLayout>
       <h2 style={{ fontSize: 20, marginBottom: 4 }}>{t('signup.title')}</h2>
       <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 20 }}>{t('signup.sub')}</p>
+
+      {inviteLocked && (
+        <div style={{ background: 'color-mix(in srgb, var(--brand-500) 10%, transparent)', color: 'var(--ink-secondary)', fontSize: 12.5, padding: '10px 12px', borderRadius: 8, marginBottom: 16 }}>
+          You've been invited to join <b>{invite.workspaceName}</b>{invite.projectName ? <> — the <b>{invite.projectName}</b> project</> : ''} as <b>{invite.role}</b>.
+        </div>
+      )}
+      {inviteInvalid && (
+        <div style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)', fontSize: 12.5, padding: '8px 11px', borderRadius: 8, marginBottom: 14 }}>
+          This invitation has expired or is no longer valid. <Link to="/login" style={{ color: 'inherit', fontWeight: 700, textDecoration: 'underline' }}>Sign in</Link> if you already have an account.
+        </div>
+      )}
 
       {err && (
         <div style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)', fontSize: 12.5, padding: '8px 11px', borderRadius: 8, marginBottom: 14 }}>
@@ -69,7 +116,7 @@ export default function Signup() {
       </div>
       <div className="field">
         <label>{t('signup.email')}</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={inviteLocked} />
         {fieldErrs.email && <div className="field-err">{fieldErrs.email}</div>}
       </div>
       <div className="field">

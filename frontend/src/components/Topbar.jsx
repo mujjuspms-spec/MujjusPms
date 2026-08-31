@@ -7,7 +7,9 @@ import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { fetchNotifications, markNotificationRead } from '../services/notifications';
+import { acceptInvitation, declineInvitation } from '../services/workspaces';
 import { onRealtime } from '../services/realtime';
+import { useToast } from './Toast';
 import TimerWidget from './TimerWidget';
 
 const WORKSPACE_ROLE_LABEL = { ADMIN: 'Admin', MEMBER: 'Member', VIEWER: 'Viewer' };
@@ -18,11 +20,32 @@ export default function Topbar({ onNewTask, onOpenPalette, onToggleMobileNav }) 
   const { user, logout } = useAuth();
   const { role: workspaceRole, isWorkspaceAdmin } = useWorkspace();
   const navigate = useNavigate();
+  const { show } = useToast();
   const [openPopover, setOpenPopover] = useState(null);
   const [notifs, setNotifs] = useState([]);
+  const [inviteBusyId, setInviteBusyId] = useState(null);
   const unreadCount = notifs.filter((n) => n.unread).length;
 
   useEffect(() => { fetchNotifications().then(setNotifs); }, []);
+
+  async function respondInvitation(n, accept) {
+    setInviteBusyId(n.id);
+    try {
+      if (accept) {
+        await acceptInvitation(n.invitation.token);
+        show(`Invitation accepted. You now have access to ${n.invitation.projectName || n.invitation.workspaceName}.`);
+      } else {
+        await declineInvitation(n.invitation.token);
+        show('Invitation declined.');
+      }
+      const fresh = await fetchNotifications();
+      setNotifs(fresh);
+    } catch (e) {
+      show(e.message || 'Could not respond to this invitation', 'critical');
+    } finally {
+      setInviteBusyId(null);
+    }
+  }
 
   useEffect(() => onRealtime((msg) => {
     if (msg.type === 'notification' && msg.payload.userId === user?.id) {
@@ -39,7 +62,10 @@ export default function Topbar({ onNewTask, onOpenPalette, onToggleMobileNav }) 
       markNotificationRead(n.id).catch(() => {});
       setNotifs((ns) => ns.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
     }
-    if (n.projectId) navigate(`/projects/${n.projectId}`);
+    // A pending invitation isn't accepted yet — clicking the row shouldn't
+    // navigate to a project they don't have access to; use Accept/Decline.
+    const isPendingInvite = n.invitation && n.invitation.status === 'PENDING';
+    if (n.projectId && !isPendingInvite) navigate(`/projects/${n.projectId}`);
     setOpenPopover(null);
   }
 
@@ -82,9 +108,30 @@ export default function Topbar({ onNewTask, onOpenPalette, onToggleMobileNav }) 
               {notifs.map((n) => (
                 <div key={n.id} className={`notif-item${n.unread ? ' unread' : ''}`} onClick={() => openNotif(n)}>
                   <Icon name={n.icon} className="icon icon-sm" style={{ color: n.color, marginTop: 2 }} />
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 12.5 }}>{n.text}</div>
                     <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 3 }}>{new Date(n.time).toLocaleString()}</div>
+                    {n.invitation && n.invitation.status === 'PENDING' && (
+                      <div className="flex gap-8" style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="btn btn-primary btn-sm" style={{ padding: '4px 10px', fontSize: 11.5 }}
+                          disabled={inviteBusyId === n.id} onClick={() => respondInvitation(n, true)}
+                        >
+                          {inviteBusyId === n.id ? '…' : 'Accept'}
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11.5 }}
+                          disabled={inviteBusyId === n.id} onClick={() => respondInvitation(n, false)}
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    )}
+                    {n.invitation && n.invitation.status !== 'PENDING' && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                        {n.invitation.status === 'ACCEPTED' ? 'Accepted' : 'Declined'}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

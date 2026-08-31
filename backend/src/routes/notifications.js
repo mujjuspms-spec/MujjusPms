@@ -5,8 +5,19 @@ import { requireAuth } from '../lib/auth.js';
 const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
-  const notifications = await prisma.notification.findMany({ where: { userId: req.user.id }, orderBy: { time: 'desc' } });
-  res.json({ notifications });
+  const notifications = await prisma.notification.findMany({
+    where: { userId: req.user.id }, orderBy: { time: 'desc' },
+    include: { invitation: { include: { workspace: true, project: true } } },
+  });
+  res.json({
+    notifications: notifications.map((n) => ({
+      ...n,
+      invitation: n.invitation ? {
+        token: n.invitation.token, role: n.invitation.role, status: n.invitation.status,
+        workspaceName: n.invitation.workspace.name, projectName: n.invitation.project?.name ?? null,
+      } : undefined,
+    })),
+  });
 });
 
 router.patch('/:id/read', requireAuth, async (req, res) => {

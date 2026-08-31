@@ -20,13 +20,13 @@ async function postToSlack(text) {
 // Pushes an in-app notification, and best-effort mirrors it to Slack/email
 // when those channels are configured. Never throws — notification delivery
 // failures shouldn't break the calling mutation.
-export async function notifyUser(userId, { text, projectId = null, taskId = null, icon = 'i-bell', color = 'var(--brand-500)', urgent = false }) {
+export async function notifyUser(userId, { text, projectId = null, taskId = null, invitationId = null, icon = 'i-bell', color = 'var(--brand-500)', urgent = false }) {
   const notif = await prisma.notification.create({
-    data: { userId, icon, color, text, projectId, taskId, unread: true },
+    data: { userId, icon, color, text, projectId, taskId, invitationId, unread: true },
   });
 
   postToSlack(`:bell: *MujuzPM* — ${text}`).catch(() => {});
-  broadcast('notification', { userId, id: notif.id, text, icon, color, projectId, taskId, time: notif.time });
+  broadcast('notification', { userId, id: notif.id, text, icon, color, projectId, taskId, invitationId, time: notif.time });
 
   if (urgent) {
     const user = await prisma.user.findUnique({ where: { id: userId } });

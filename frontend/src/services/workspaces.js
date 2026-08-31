@@ -24,6 +24,12 @@ export function fetchPendingInvitations() {
   return apiFetch('/api/workspaces/invitations/pending').then((r) => r.invitations);
 }
 
+// Public — works with or without a session, for the signup screen to show
+// invitation context before the invitee has an account.
+export function peekInvitation(token) {
+  return apiFetch(`/api/workspaces/invitations/${token}/peek`);
+}
+
 export function createWorkspace(payload) {
   return apiFetch('/api/workspaces', { method: 'POST', body: JSON.stringify(payload) });
 }
@@ -49,6 +55,18 @@ export function sendInvitations(workspaceId, emails, role) {
 
 export function fetchWorkspaceMembers(workspaceId) {
   return apiFetch(`/api/workspaces/${workspaceId}/members`).then((r) => r.members);
+}
+
+export function fetchWorkspaceInvitations(workspaceId) {
+  return apiFetch(`/api/workspaces/${workspaceId}/invitations`).then((r) => r.invitations);
+}
+
+export function resendInvitation(workspaceId, invitationId) {
+  return apiFetch(`/api/workspaces/${workspaceId}/invitations/${invitationId}/resend`, { method: 'POST' });
+}
+
+export function cancelInvitation(workspaceId, invitationId) {
+  return apiFetch(`/api/workspaces/${workspaceId}/invitations/${invitationId}`, { method: 'DELETE' });
 }
 
 export function changeWorkspaceMemberRole(workspaceId, userId, role) {

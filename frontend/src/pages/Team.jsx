@@ -10,7 +10,11 @@ import { useAuth } from '../hooks/useAuth';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { PEOPLE } from '../services/people';
 import { PROJECTS, fetchProjectMembers } from '../services/projects';
-import { fetchWorkspaceMembers, changeWorkspaceMemberRole, removeWorkspaceMember, resetMemberPassword } from '../services/workspaces';
+import { useToast } from '../components/Toast';
+import {
+  fetchWorkspaceMembers, changeWorkspaceMemberRole, removeWorkspaceMember, resetMemberPassword,
+  fetchWorkspaceInvitations, resendInvitation, cancelInvitation,
+} from '../services/workspaces';
 
 const ROLE_LABEL = { ADMIN: 'Admin', MEMBER: 'Member', VIEWER: 'Viewer' };
 
@@ -19,8 +23,11 @@ export default function Team() {
   const { user } = useAuth();
   const { activeWorkspace, isWorkspaceAdmin } = useWorkspace();
   const navigate = useNavigate();
+  const { show } = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [wsMembers, setWsMembers] = useState(null);
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [inviteBusyId, setInviteBusyId] = useState(null);
   const [roleChange, setRoleChange] = useState(null); // { userId, name, from, to }
   const [roleChangeBusy, setRoleChangeBusy] = useState(false);
   const [assignFor, setAssignFor] = useState(null); // { id, name }
@@ -34,7 +41,39 @@ export default function Team() {
   useEffect(() => {
     if (!activeWorkspace?.id) return;
     fetchWorkspaceMembers(activeWorkspace.id).then(setWsMembers);
-  }, [activeWorkspace?.id]);
+    if (isWorkspaceAdmin) refreshInvites();
+  }, [activeWorkspace?.id, isWorkspaceAdmin]);
+
+  function refreshInvites() {
+    if (!activeWorkspace?.id) return;
+    fetchWorkspaceInvitations(activeWorkspace.id).then(setPendingInvites);
+  }
+
+  async function doResend(invitationId) {
+    setInviteBusyId(invitationId);
+    try {
+      await resendInvitation(activeWorkspace.id, invitationId);
+      show('Invitation resent.');
+      refreshInvites();
+    } catch (e) {
+      show(e.message || 'Could not resend this invitation', 'critical');
+    } finally {
+      setInviteBusyId(null);
+    }
+  }
+
+  async function doCancel(invitationId) {
+    if (!window.confirm('Cancel this invitation? The link will stop working.')) return;
+    setInviteBusyId(invitationId);
+    try {
+      await cancelInvitation(activeWorkspace.id, invitationId);
+      refreshInvites();
+    } catch (e) {
+      show(e.message || 'Could not cancel this invitation', 'critical');
+    } finally {
+      setInviteBusyId(null);
+    }
+  }
 
   // Projects column: how many projects each Member/Viewer is assigned to
   // (Admin always shows "All Projects" — no per-project row needed for them).
@@ -169,7 +208,7 @@ export default function Team() {
                   <td style={{ padding: '10px 14px' }}>
                     {isWorkspaceAdmin && (
                       <div className="flex items-center gap-4">
-                        <button className="btn-icon" title="Reset password" onClick={() => { setResetPwFor({ userId: p.id, name: p.name }); setNewPw(''); setPwError(''); }}>
+                        <button className="btn-icon" title="Reset password (only affects legacy accounts — most sign in via Supabase now)" onClick={() => { setResetPwFor({ userId: p.id, name: p.name }); setNewPw(''); setPwError(''); }}>
                           <Icon name="i-shield" className="icon icon-sm" />
                         </button>
                         <button className="btn-icon" title="Remove from workspace" onClick={() => removeMember(p.id)}>
@@ -181,11 +220,44 @@ export default function Team() {
                 </tr>
               );
             })}
+            {pendingInvites.map((inv) => (
+              <tr key={inv.id} style={{ borderBottom: '1px solid var(--border)', opacity: 0.75 }}>
+                <td style={{ padding: '10px 14px' }}>
+                  <div className="flex items-center gap-10">
+                    <div className="avatar" style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--surface-sunken)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Icon name="i-users" className="icon icon-sm" style={{ color: 'var(--ink-muted)' }} />
+                    </div>
+                    <span style={{ fontWeight: 600 }}>{inv.name || inv.email}</span>
+                  </div>
+                </td>
+                <td style={{ padding: '10px 14px', color: 'var(--ink-muted)' }}>{inv.email}</td>
+                <td style={{ padding: '10px 14px', color: 'var(--ink-muted)' }}>Not set</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span className="pill" style={{ padding: '2px 8px' }}>{ROLE_LABEL[inv.role] || inv.role}</span>
+                </td>
+                <td style={{ padding: '10px 14px', color: 'var(--ink-muted)' }}>{inv.projectName || 'Workspace only'}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span className="pill" style={{ padding: '2px 8px', background: 'color-mix(in srgb, var(--status-warning) 18%, transparent)', color: 'var(--status-warning)' }}>Invitation pending</span>
+                </td>
+                <td style={{ padding: '10px 14px' }}>
+                  {isWorkspaceAdmin && (
+                    <div className="flex items-center gap-4">
+                      <button className="btn-icon" title="Resend invitation" disabled={inviteBusyId === inv.id} onClick={() => doResend(inv.id)}>
+                        <Icon name="i-mail" className="icon icon-sm" />
+                      </button>
+                      <button className="btn-icon" title="Cancel invitation" disabled={inviteBusyId === inv.id} onClick={() => doCancel(inv.id)}>
+                        <Icon name="i-x" className="icon icon-sm" />
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
-      {addOpen && <AddTeamMemberModal onClose={() => setAddOpen(false)} />}
+      {addOpen && <AddTeamMemberModal onClose={() => { setAddOpen(false); refreshInvites(); }} />}
       {resetPwFor && (
         <Modal
           title={`Reset ${resetPwFor.name}'s password`}

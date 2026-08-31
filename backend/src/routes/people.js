@@ -7,6 +7,8 @@ import { requireAuth, publicUser } from '../lib/auth.js';
 import { requireWorkspaceContext, requireWorkspaceRole } from '../lib/permissions.js';
 import { logAudit } from '../lib/audit.js';
 import { supabase } from '../lib/supabase.js';
+import { notifyUser } from '../lib/notify.js';
+import { sendExistingUserInviteEmail, sendNewUserSignupInviteEmail } from '../lib/resend.js';
 
 const uploadAvatar = multer({
   storage: multer.memoryStorage(),
@@ -15,7 +17,6 @@ const uploadAvatar = multer({
 });
 
 const router = Router();
-const AVATAR_COLORS = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)', 'var(--cat-6)', 'var(--cat-7)', 'var(--cat-8)'];
 
 // Workspace-scoped roster — only people who are ACTIVE members of the
 // caller's active workspace, never every User row in the database.
@@ -27,66 +28,90 @@ router.get('/', requireAuth, requireWorkspaceContext, async (req, res) => {
   res.json({ people: members.map((m) => publicUser(m.user)) });
 });
 
-// Provisions a brand-new person directly into this workspace — distinct
-// from /api/auth/register (self-signup, which logs the caller in as the
-// new account and creates no workspace membership at all) since here an
-// admin is adding someone else, into their own workspace, while staying
-// signed in as themselves.
+// Sends invitation(s) for a person to join this workspace — scoped to
+// specific projects when given, or workspace-only when not. NEVER creates
+// a User or a password here: this app's only real auth is Supabase, and a
+// User row created directly here would have no matching Supabase Auth
+// account and could never actually log in. The invitee either accepts
+// (existing account, see workspaces.js's /invitations/:token/accept) or
+// signs up themselves (new account, see auth.js's invite-aware
+// auto-provision block) to gain access.
 const WORKSPACE_ROLES = ['ADMIN', 'MEMBER', 'VIEWER'];
 
 router.post('/', requireAuth, requireWorkspaceContext, requireWorkspaceRole('ADMIN'), async (req, res) => {
-  const { name, email, role = '', workspaceRole = 'MEMBER', password } = req.body;
+  const { name, email, workspaceRole = 'MEMBER', projectIds = [] } = req.body;
   if (!name?.trim() || !email?.trim()) return res.status(400).json({ error: 'name and email are required' });
-  if (!password || password.length < 6) return res.status(400).json({ error: 'A password of at least 6 characters is required' });
   if (!WORKSPACE_ROLES.includes(workspaceRole)) return res.status(400).json({ error: 'Invalid workspace role' });
-
   const normalizedEmail = email.trim().toLowerCase();
-  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) {
-    const membership = await prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: req.workspaceId, userId: existing.id } },
-    });
-    if (membership && membership.status === 'ACTIVE') {
-      return res.status(409).json({ error: 'This user is already a member of this workspace' });
-    }
 
-    const pendingInvite = await prisma.workspaceInvitation.findFirst({
-      where: { workspaceId: req.workspaceId, email: normalizedEmail, status: 'PENDING' },
-    });
-    if (pendingInvite) {
-      return res.status(409).json({ error: 'An invitation is already pending for this user' });
+  const projects = projectIds.length
+    ? await prisma.project.findMany({ where: { id: { in: projectIds }, workspaceId: req.workspaceId } })
+    : [];
+  if (projectIds.length && projects.length !== projectIds.length) {
+    return res.status(400).json({ error: 'One or more selected projects were not found in this workspace' });
+  }
+  // null = a plain workspace-only invite (today's only behavior when no
+  // projects are selected); otherwise one invitation per selected project.
+  const scopes = projects.length ? projects : [null];
+
+  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const existingMembership = existingUser
+    ? await prisma.workspaceMember.findUnique({ where: { workspaceId_userId: { workspaceId: req.workspaceId, userId: existingUser.id } } })
+    : null;
+  if (existingMembership?.status === 'ACTIVE' && scopes.length === 1 && scopes[0] === null) {
+    return res.status(409).json({ error: 'This user is already a member of this workspace' });
+  }
+
+  const workspace = await prisma.workspace.findUnique({ where: { id: req.workspaceId } });
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const created = [];
+  const skipped = [];
+
+  for (const project of scopes) {
+    if (existingUser && existingMembership?.status === 'ACTIVE' && project) {
+      const pm = await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId: project.id, userId: existingUser.id } } });
+      if (pm) { skipped.push({ projectId: project.id, projectName: project.name, reason: 'This user is already a member of this project' }); continue; }
     }
+    const dup = await prisma.workspaceInvitation.findFirst({
+      where: { workspaceId: req.workspaceId, email: normalizedEmail, projectId: project?.id ?? null, status: 'PENDING' },
+    });
+    if (dup) { skipped.push({ projectId: project?.id ?? null, projectName: project?.name ?? null, reason: 'An invitation is already pending' }); continue; }
 
     const invitation = await prisma.workspaceInvitation.create({
       data: {
-        workspaceId: req.workspaceId,
-        email: normalizedEmail,
-        role: workspaceRole,
-        token: nanoid(24),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        workspaceId: req.workspaceId, projectId: project?.id ?? null, email: normalizedEmail, name: name.trim(),
+        role: workspaceRole, token: nanoid(24), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         invitedBy: req.user.id,
       },
     });
-    await logAudit(req.user.id, 'invite', 'workspace', req.workspaceId, { email: normalizedEmail, role: workspaceRole }, req.workspaceId);
-    return res.status(201).json({ wasInvited: true, email: normalizedEmail });
+    created.push(invitation);
+
+    if (existingUser) {
+      await notifyUser(existingUser.id, {
+        text: project ? `You were invited to join ${project.name}` : `You were invited to join ${workspace.name}`,
+        projectId: project?.id ?? null, icon: 'i-users', color: 'var(--brand-500)',
+        invitationId: invitation.id,
+      });
+      await sendExistingUserInviteEmail({
+        to: normalizedEmail, inviterName: req.user.name, workspaceName: workspace.name,
+        projectName: project?.name ?? null, role: workspaceRole,
+      }).catch((e) => console.error('[people] invite email failed', e));
+    } else {
+      await sendNewUserSignupInviteEmail({
+        to: normalizedEmail, inviterName: req.user.name, workspaceName: workspace.name,
+        projectName: project?.name ?? null, role: workspaceRole, token: invitation.token, origin,
+      }).catch((e) => console.error('[people] signup-invite email failed', e));
+    }
   }
 
-  const { user } = await prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({
-      data: {
-        id: nanoid(8), name: name.trim(), email: normalizedEmail, role: role.trim(), globalRole: 'member',
-        color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-        initials: name.trim().split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase(),
-        passwordHash: bcrypt.hashSync(password, 8), capacity: 40, allocated: 0,
-      },
-    });
-    await tx.workspaceMember.create({
-      data: { workspaceId: req.workspaceId, userId: user.id, role: workspaceRole, status: 'ACTIVE' },
-    });
-    return { user };
+  if (created.length === 0) {
+    return res.status(409).json({ error: 'No new invitations were created', skipped });
+  }
+  await logAudit(req.user.id, 'invite', 'workspace', req.workspaceId, { email: normalizedEmail, role: workspaceRole, projectIds: created.map((i) => i.projectId) }, req.workspaceId);
+  res.status(201).json({
+    invitations: created.map((i) => ({ token: i.token, projectId: i.projectId, role: i.role })),
+    skipped, existingUser: !!existingUser,
   });
-  await logAudit(req.user.id, 'create', 'user', user.id, { name: user.name, email: user.email }, req.workspaceId);
-  res.json({ person: publicUser(user) });
 });
 
 router.get('/:id/avatar', requireAuth, async (req, res) => {

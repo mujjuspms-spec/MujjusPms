@@ -6,6 +6,8 @@ import { requireAuth } from '../lib/auth.js';
 import { requireWorkspaceRole, isLastAdmin } from '../lib/permissions.js';
 import { logAudit } from '../lib/audit.js';
 import { broadcast } from '../lib/sse.js';
+import { notifyUser } from '../lib/notify.js';
+import { sendExistingUserInviteEmail, sendNewUserSignupInviteEmail } from '../lib/resend.js';
 
 const router = Router();
 
@@ -80,10 +82,27 @@ router.get('/mine', requireAuth, async (req, res) => {
 router.get('/invitations/pending', requireAuth, async (req, res) => {
   const pending = await prisma.workspaceInvitation.findMany({
     where: { email: req.user.email.toLowerCase(), status: 'PENDING', expiresAt: { gt: new Date() } },
-    include: { workspace: true },
+    include: { workspace: true, project: true },
   });
   res.json({
-    invitations: pending.map((i) => ({ token: i.token, role: i.role, workspace: workspaceOut(i.workspace) })),
+    invitations: pending.map((i) => ({
+      token: i.token, role: i.role, workspace: workspaceOut(i.workspace), projectName: i.project?.name ?? null,
+    })),
+  });
+});
+
+// Public — no account exists yet for a brand-new invitee, so this can't
+// require auth. Only leaks the minimum needed to show context on the
+// signup screen: never the token owner's identity beyond their own email.
+router.get('/invitations/:token/peek', async (req, res) => {
+  const invitation = await prisma.workspaceInvitation.findUnique({
+    where: { token: req.params.token }, include: { workspace: true, project: true },
+  });
+  if (!invitation) return res.status(404).json({ error: 'This invitation is invalid' });
+  const expired = invitation.status !== 'PENDING' || invitation.expiresAt < new Date();
+  res.json({
+    email: invitation.email, workspaceName: invitation.workspace.name,
+    projectName: invitation.project?.name ?? null, role: invitation.role, expired,
   });
 });
 
@@ -93,7 +112,7 @@ router.post('/invitations/:token/accept', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'This invitation is invalid or has expired' });
   }
   if (invitation.email.toLowerCase() !== req.user.email.toLowerCase()) {
-    return res.status(403).json({ error: 'This invitation was sent to a different email address' });
+    return res.status(403).json({ error: 'This invitation was sent to another email address. Please sign in with the invited account.' });
   }
 
   const workspace = await prisma.$transaction(async (tx) => {
@@ -101,16 +120,30 @@ router.post('/invitations/:token/accept', requireAuth, async (req, res) => {
       where: { workspaceId_userId: { workspaceId: invitation.workspaceId, userId: req.user.id } },
     });
     if (existing) {
-      await tx.workspaceMember.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } });
+      if (existing.status !== 'ACTIVE') await tx.workspaceMember.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } });
     } else {
       await tx.workspaceMember.create({
         data: { workspaceId: invitation.workspaceId, userId: req.user.id, role: invitation.role, status: 'ACTIVE' },
       });
     }
-    await tx.workspaceInvitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date() } });
+    // Project-scoped: acceptance grants access to exactly this one
+    // project — workspace membership alone never implies project access.
+    if (invitation.projectId) {
+      const existingPM = await tx.projectMember.findUnique({
+        where: { projectId_userId: { projectId: invitation.projectId, userId: req.user.id } },
+      });
+      if (!existingPM) await tx.projectMember.create({ data: { projectId: invitation.projectId, userId: req.user.id } });
+    }
+    await tx.workspaceInvitation.update({
+      where: { id: invitation.id },
+      data: { status: 'ACCEPTED', acceptedAt: new Date(), inviteeUserId: req.user.id },
+    });
     return tx.workspace.findUnique({ where: { id: invitation.workspaceId } });
   });
-  await logAudit(req.user.id, 'accept_invitation', 'workspace', workspace.id, { role: invitation.role }, workspace.id);
+  if (invitation.projectId) {
+    broadcast('project.access.changed', { projectId: invitation.projectId, userId: req.user.id });
+  }
+  await logAudit(req.user.id, 'accept_invitation', 'workspace', workspace.id, { role: invitation.role, projectId: invitation.projectId }, workspace.id);
   res.json({ workspace: workspaceOut(workspace), role: invitation.role });
 });
 
@@ -118,7 +151,7 @@ router.post('/invitations/:token/decline', requireAuth, async (req, res) => {
   const invitation = await prisma.workspaceInvitation.findUnique({ where: { token: req.params.token } });
   if (!invitation || invitation.status !== 'PENDING') return res.status(404).json({ error: 'This invitation is invalid or has expired' });
   if (invitation.email.toLowerCase() !== req.user.email.toLowerCase()) {
-    return res.status(403).json({ error: 'This invitation was sent to a different email address' });
+    return res.status(403).json({ error: 'This invitation was sent to another email address. Please sign in with the invited account.' });
   }
   await prisma.workspaceInvitation.update({ where: { id: invitation.id }, data: { status: 'DECLINED' } });
   res.json({ ok: true });
@@ -166,6 +199,61 @@ router.post('/:id/invitations', requireAuth, loadMembership, requireWorkspaceRol
     invitations: invitations.map((i) => ({ token: i.token, email: i.email, role: i.role, expiresAt: i.expiresAt })),
     skipped,
   });
+});
+
+// Pending (not yet accepted/declined/cancelled) invitations for Team.jsx's
+// "Invitation pending" rows — active members come from GET /:id/members.
+router.get('/:id/invitations', requireAuth, loadMembership, requireWorkspaceRole('ADMIN'), async (req, res) => {
+  const invitations = await prisma.workspaceInvitation.findMany({
+    where: { workspaceId: req.params.id, status: 'PENDING' },
+    include: { project: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({
+    invitations: invitations.map((i) => ({
+      id: i.id, email: i.email, name: i.name, role: i.role,
+      projectId: i.projectId, projectName: i.project?.name ?? null,
+      expiresAt: i.expiresAt, createdAt: i.createdAt,
+    })),
+  });
+});
+
+router.post('/:id/invitations/:invitationId/resend', requireAuth, loadMembership, requireWorkspaceRole('ADMIN'), async (req, res) => {
+  const invitation = await prisma.workspaceInvitation.findFirst({
+    where: { id: req.params.invitationId, workspaceId: req.params.id, status: 'PENDING' },
+    include: { workspace: true, project: true },
+  });
+  if (!invitation) return res.status(404).json({ error: 'This invitation is invalid or has expired' });
+
+  const updated = await prisma.workspaceInvitation.update({
+    where: { id: invitation.id }, data: { expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+  });
+  const existingUser = await prisma.user.findUnique({ where: { email: invitation.email } });
+  const origin = `${req.protocol}://${req.get('host')}`;
+  if (existingUser) {
+    await sendExistingUserInviteEmail({
+      to: invitation.email, inviterName: req.user.name, workspaceName: invitation.workspace.name,
+      projectName: invitation.project?.name ?? null, role: invitation.role,
+    }).catch((e) => console.error('[workspaces] resend invite email failed', e));
+  } else {
+    await sendNewUserSignupInviteEmail({
+      to: invitation.email, inviterName: req.user.name, workspaceName: invitation.workspace.name,
+      projectName: invitation.project?.name ?? null, role: invitation.role, token: invitation.token, origin,
+    }).catch((e) => console.error('[workspaces] resend signup-invite email failed', e));
+  }
+  await logAudit(req.user.id, 'resend_invitation', 'workspace', req.params.id, { email: invitation.email, projectId: invitation.projectId }, req.params.id);
+  res.json({ expiresAt: updated.expiresAt });
+});
+
+router.delete('/:id/invitations/:invitationId', requireAuth, loadMembership, requireWorkspaceRole('ADMIN'), async (req, res) => {
+  const invitation = await prisma.workspaceInvitation.findFirst({
+    where: { id: req.params.invitationId, workspaceId: req.params.id, status: 'PENDING' },
+  });
+  if (!invitation) return res.status(404).json({ error: 'This invitation is invalid or has expired' });
+
+  await prisma.workspaceInvitation.update({ where: { id: invitation.id }, data: { status: 'CANCELLED' } });
+  await logAudit(req.user.id, 'cancel_invitation', 'workspace', req.params.id, { email: invitation.email, projectId: invitation.projectId }, req.params.id);
+  res.json({ ok: true });
 });
 
 router.get('/:id/members', requireAuth, loadMembership, async (req, res) => {

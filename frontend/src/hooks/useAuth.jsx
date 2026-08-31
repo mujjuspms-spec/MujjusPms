@@ -77,12 +77,16 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function register(name, email, password) {
+  async function register(name, email, password, inviteToken = null) {
     setError(null);
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name } }
+      // inviteToken travels via Supabase user_metadata the same way name
+      // does, since email confirmation means there's no backend User row
+      // (and no way to pass anything else) until they confirm and first
+      // log in — see auth.js's auto-provision block, which reads it back.
+      options: { data: inviteToken ? { name, inviteToken } : { name } }
     });
     if (error) throw new Error(error.message);
   }
